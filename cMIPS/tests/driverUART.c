@@ -22,18 +22,19 @@ extern int tx_has_started;
 void main() {
 	volatile Tserial *uart = (void *) IO_UART_ADDR;
 	Tcontrol ctl;
-	Tinterr interr;
+	unsigned int interr;
 
-	Ud.nrx = Ud.ntx = 0;
+	Ud.nrx = 0;
+	Ud.ntx = 0;
+	
+	interr = UART_INT_setRX;
+	uart->interr.i = interr;
 	
 	ctl.rts = 0;
 	ctl.speed = UART_SPEED;
 	ioctl(ctl);
 	ctl.rts = 1;
 	ioctl(ctl);
-
-	interr.i = UART_INT_setRX;
-	uart->interr = interr;
 
 	while(1) {
 		if(proberx() > 0) {

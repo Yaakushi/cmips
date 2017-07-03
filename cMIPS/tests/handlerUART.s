@@ -1,6 +1,8 @@
 	# .set UART_rx_irq,0x08
 	# .set UART_tx_irq,0x10
 	.set UART_tx_bfr_empty,0x40
+	.equ U_rx_irq_en,0x20
+	.equ U_tx_irq_en,0x40
 
 	# save registers
 	lui		$k0, %hi(_uart_buff)
@@ -47,6 +49,10 @@ UARTrec:
 	addi	$a3, $a3, 1
 	sw		$a3, NRX($a2)
 	
+	lw		$a1, UINTER($a0)
+	ori		$a1, $a1, U_rx_irq_en
+	sw		$a1, UINTER($a0)
+
 	j		_return
 	nop
 
