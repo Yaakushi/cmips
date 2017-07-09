@@ -109,12 +109,12 @@ int Putc(char c) {
 	} else {
 		// UART não transmitindo.
 		// Faz o xunxo e joga direto no TXreg.
-		uart->interr.i = uart->interr.i | UART_INT_progTX;
 		uart->data = (int) c;
 		print(uart->interr.i);
 		//print(0xABCDDCBA);
 		tx_has_started = 1;
 		enableInterr();
+		uart->interr.i = /*uart->interr.i |*/ UART_INT_progTX;
 		return 1;
 	}
 }

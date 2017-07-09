@@ -1,88 +1,126 @@
+	
 	# .set UART_rx_irq,0x08
 	# .set UART_tx_irq,0x10
 	.set UART_tx_bfr_empty,0x40
-	.equ U_rx_irq_en,0x20
-	.equ U_tx_irq_en,0x40
 
-	# save registers
 	lui		$k0, %hi(_uart_buff)
 	ori		$k0, $k0, %lo(_uart_buff)
-	sw		$a0, 5*4($k0)
-	sw		$a1, 6*4($k0)
-	sw		$a2, 7*4($k0)
-	sw		$a3, 8*4($k0)
-	sw		$s0, 9*4($k0)
+	# save registers
+	sw		$s0,  5*4($k0)
+	sw		$s1,  6*4($k0)
+	sw		$s2,  7*4($k0)
+	sw		$s3,  8*4($k0)
+	sw		$s4,  9*4($k0)
+	sw		$s5, 10*4($k0)
+	sw		$a0, 11*4($k0)
 
-	lui		$a0, %hi(HW_uart_addr)  # get device's address
-	ori		$a0, $a0, %lo(HW_uart_addr)
-	nop
-	jal		print
-	nop
 
-	lw		$k1, USTAT($k0) # Load status register
-	# Se (STATS & tx_irq) == 0, então é interrupcao de RX
-	andi	$a1, $k1, U_tx_irq
-	beq		$a1, $zero, UARTrec
+	# replace $xx for the apropriate registers
+	lui		$k1, %hi(HW_uart_addr)  # get device's address
+	ori		$k1, $k1, %lo(HW_uart_addr)
+	
+	# your code goes here
+	lui		$a0, %hi(Ud)
+	ori		$a0, $a0, %lo(Ud)
+	lw		$s0, USTAT($k1)
+	andi	$s0, $s0, U_rx_irq
+	beq		$s0, $zero, UARTtra
 	nop
-	j		UARTtra
+	#jal		print
+	j		UARTrec
+	#j		_return_uart
 	
 	#---------------------------------------------------
 	# handle reception
 UARTrec:
-	# Clear reception IRQ
-	lw		$a1, UINTER($a0)
-	ori		$a1, $a1, U_rx_irq
-	sw		$a1, UINTER($a0)
+	lb		$s0, UDATA($k1) 	# Read data from device
 
-	lw		$a1, UDATA($a0) 	# Read data from device
-	lui		$a2, %hi(Ud)		# Load UART data address
-	ori		$a2, $a2, %lo(Ud)
-	lw		$a3, RXTL($a2)		# Get RX tail
-	add		$s0, $a3, $a2		# Add it to Ud addr
-	sw		$a1, RX_Q($s0)		# And then add the RX_Q offset
-	addi	$a3, $a3, 1			# (rx_tail + 1) % Q_size
-	andi	$a3, $a3, (Q_SZ - 1)
-	sw		$a3, RXTL($a2)		# Store new RX_tail value
+	# your code goes here
+	lw		$s1, RXTL($a0)
+	add		$s2, $s1, $a0
+	sb		$s0, RX_Q($s2)
+	addi	$s1, $s1, 1
+	andi	$s1, $s1, (Q_SZ - 1)
+	sw		$s1, RXTL($a0)
+	lw		$s1, NRX($a0)
+	addi	$s1, $s1, 1
+	sw		$s1, NRX($a0)
 
-	# And, finally, increments NRX
-	lw		$a3, NRX($a2)
-	addi	$a3, $a3, 1
-	sw		$a3, NRX($a2)
-	
-	lw		$a1, UINTER($a0)
-	ori		$a1, $a1, U_rx_irq_en
-	sw		$a1, UINTER($a0)
+	lw		$s1, UINTER($k1)
+	ori		$s1, $s1, U_rx_irq
+	sw		$s1, UINTER($k1)
 
-	j		_return
 	nop
-
 	
+	j		_return_uart
+	nop
 	
 	#---------------------------------------------------
 	# handle transmission
 UARTtra:	
-	lui		$a1, %hi(Ud)
-	ori		$a1, $a1, %lo(Ud)
-	lw		$a2, NTX($a2)
-	addi	$a2, $a2, 1
-	sw		$a2, NTX($a2)
-	# your code goes here
-	
-	sw		$a1, UDATA($a0) 	# Write data to device
+	# If there's nothing in the queue waiting to be transmitted
+	# just unset the tx started flag and return.
+	jal		print
+	lw		$s1, NTX($a0)
+	beqz	$s1, stop_tx
+	nop
 
+	jal		print
+	nop
+
+	# Otherwise do the tx normally.
+	# Do some weird ASM math to get to Ud.rx_q[Ud.tx_hd]
+	lw		$s2, TXHD($a0)
+	add		$s3, $s2, $a0
+	lb		$s0, TX_Q($s3)
+
+	# Decrements NTX and increments TX_HD (mod Q_SZ).
+	addi	$s1, $s1, -1
+	sw		$s1, NTX($a0)
+	addi	$s2, $s2, 1
+	andi	$s2, $s2, (Q_SZ - 1)
+	sw		$s2, RXHD($a0)
+
+	# Last, but not least important, clearing the damned interruption.
+	lw		$s1, UINTER($k1)
+	ori		$s1, $s1, U_rx_irq
+	sw		$s1, UINTER($k1)
+
+	# your code goes here
+	sw		$s0, UDATA($k1) 	# Read data from device
+	j		_return_uart
+	nop
+
+stop_tx:
+	# Turn off the TX interruption to avoid hanging the processor.
+	lw		$s1, UINTER($k1)
+	ori		$s1, $s1, 0x1 # Just keeps the RX part of it.
+	sw		$s1, UINTER($k1)
+
+	# Also turn off the TX started flag and return.
+	lui		$s1, 0x0
+	lui		$a0, %hi(tx_has_started)
+	ori		$a0, $a0, %lo(tx_has_started)
+	sw		$s1, 0($a0)
+
+	lui		$a0, 0xDEAD
+	ori		$a0, $a0, 0xDEAD
+	jal		print
+	nop
 
 	#---------------------------------------------------
 	# return	
 	
-_return:
+_return_uart:
 
 	# restore registers
-	lw		$a0, 5*4($k0)
-	lw		$a1, 6*4($k0)
-	lw		$a2, 7*4($k0)
-	lw		$a3, 8*4($k0)
-	lw		$s0, 9*4($k0)
-
+	lw		$s0,  5*4($k0)
+	lw		$s1,  6*4($k0)
+	lw		$s2,  7*4($k0)
+	lw		$s3,  8*4($k0)
+	lw		$s4,  9*4($k0)
+	lw		$s5, 10*4($k0)
+	lw		$a0, 11*4($k0)
 
 	eret			    # Return from interrupt
 
