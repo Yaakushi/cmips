@@ -11,7 +11,7 @@ int probetx();
 Tstatus iostat();
 void ioctl(Tcontrol ctl);
 char Getc();
-int Putc();
+int Putc(char c);
 
 #define UART_SPEED	3
 
@@ -19,16 +19,15 @@ int Putc();
 extern UARTdriver Ud;
 extern int tx_has_started;
 
-void main() {
+int main() {
 	volatile Tserial *uart = (void *) IO_UART_ADDR;
 	Tcontrol ctl;
-	unsigned int interr;
 
 	Ud.nrx = 0;
 	Ud.ntx = 0;
+	tx_has_started = 0;
 	
-	interr = UART_INT_setRX;
-	uart->interr.i = interr;
+	uart->interr.i = UART_INT_progRX;
 	
 	ctl.rts = 0;
 	ctl.speed = UART_SPEED;
@@ -36,15 +35,24 @@ void main() {
 	ctl.rts = 1;
 	ioctl(ctl);
 
+	Putc('o');
+	Putc('l');
+	Putc('a');
+	Putc('\n');
+	
 	while(1) {
-		if(proberx() > 0) {
+		int x = proberx();
+		if(x > 0) {
 			char c = Getc();
-			to_stdout('[');
+			if(c == EOT) break;
 			to_stdout(c);
-			to_stdout(']');
-			to_stdout('\n');
 		}
-	}	
+	}
+	to_stdout('e');
+	to_stdout('n');
+	to_stdout('d');
+	to_stdout('\n');
+	return 0;
 }
 
 int proberx() {
@@ -67,8 +75,8 @@ void ioctl(Tcontrol ctl) {
 
 
 char Getc() {
-	volatile Tserial *uart = (void *) IO_UART_ADDR;
-	Tinterr interr = uart->interr;
+	//volatile Tserial *uart = (void *) IO_UART_ADDR;
+	//unsigned int interr = uart->interr.i;
 	disableInterr();
 	
 	char c;
@@ -78,12 +86,35 @@ char Getc() {
 	Ud.rx_hd &= Q_SZ-1; // % Q_SZ
 	
 	enableInterr();
-	interr.i = ((interr.s.intTX == 1) ? UART_INT_setTX : UART_INT_clrTX) +
-		((interr.s.intRX == 1) ? UART_INT_setRX : UART_INT_clrRX);
-	uart->interr = interr;
+	//print(uart->interr.i);
 	return c;
 }
 
-int Putc() {
-
+int Putc(char c) {
+	volatile Tserial *uart = (void *) IO_UART_ADDR;
+	disableInterr();
+	if(tx_has_started != 0) {
+		// TX já acontecendo. Apenas coloca na fila.
+		print(uart->interr.i);
+		if(probetx() >= Q_SZ) {
+			// Sem espaco na queue. Retorna.
+			enableInterr();
+			return 0;
+		}
+		Ud.tx_q[Ud.tx_tl++] = c;
+		Ud.tx_tl %= Q_SZ;
+		Ud.ntx++;
+		enableInterr();
+		return 1;
+	} else {
+		// UART não transmitindo.
+		// Faz o xunxo e joga direto no TXreg.
+		uart->interr.i = uart->interr.i | UART_INT_progTX;
+		uart->data = (int) c;
+		print(uart->interr.i);
+		//print(0xABCDDCBA);
+		tx_has_started = 1;
+		enableInterr();
+		return 1;
+	}
 }
